@@ -64,44 +64,49 @@ int performGetWithPoll(HTTPClient& http, unsigned long timeout_ms) {
   return HTTPC_ERROR_READ_TIMEOUT;
 }
 
+class PollingStringStream : public Stream {
+public:
+  explicit PollingStringStream(String& payload) : payload_(payload) {}
+
+  int available() override { return 0; }
+  int read() override { return -1; }
+  int peek() override { return -1; }
+
+  size_t write(uint8_t value) override {
+    const char byte = static_cast<char>(value);
+    return write(reinterpret_cast<const uint8_t*>(&byte), 1);
+  }
+
+  size_t write(const uint8_t* buffer, size_t size) override {
+    if (size == 0) {
+      return 0;
+    }
+    if (!payload_.concat(reinterpret_cast<const char*>(buffer),
+                         static_cast<unsigned>(size))) {
+      return 0;
+    }
+    pollNetwork();
+    return size;
+  }
+
+private:
+  String& payload_;
+};
+
 bool readResponseBodyWithPoll(HTTPClient& http, String& payload,
                               unsigned long timeout_ms) {
-  WiFiClient* stream = http.getStreamPtr();
-  if (stream == nullptr) {
+  const int content_length = http.getSize();
+  if (content_length > 0 &&
+      !payload.reserve(static_cast<unsigned>(content_length + 1))) {
     return false;
   }
 
-  const int content_length = http.getSize();
-  if (content_length > 0) {
-    payload.reserve(static_cast<unsigned>(content_length + 1));
-  }
-
-  uint8_t buffer[512];
-  const unsigned long started_ms = millis();
-  while (millis() - started_ms < timeout_ms) {
-    pollNetwork();
-    const int available = stream->available();
-    if (available > 0) {
-      const int to_read =
-          available > static_cast<int>(sizeof(buffer)) ? static_cast<int>(sizeof(buffer))
-                                                       : available;
-      const int read_bytes = stream->readBytes(buffer, to_read);
-      if (read_bytes > 0) {
-        payload.concat(reinterpret_cast<const char*>(buffer),
-                       static_cast<unsigned>(read_bytes));
-      }
-    }
-    if (content_length > 0 &&
-        static_cast<int>(payload.length()) >= content_length) {
-      break;
-    }
-    if (!http.connected() && stream->available() <= 0) {
-      break;
-    }
-    delay(1);
-  }
-
-  return payload.length() > 0;
+  http.setTimeout(timeout_ms);
+  PollingStringStream stream(payload);
+  // Let HTTPClient remove chunk framing before ArduinoJson sees the payload.
+  const int written = http.writeToStream(&stream);
+  pollNetwork();
+  return written >= 0 && payload.length() > 0;
 }
 
 float kmToNauticalMiles(float km) { return km / kKmPerNm; }
