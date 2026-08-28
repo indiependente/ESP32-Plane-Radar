@@ -6,6 +6,23 @@
 
 Firmware for an **ESP32-C3 Super Mini** or classic **ESP32-WROOM-32 DevKit** and a **1.28″ round GC9A01** display (240×240). Shows a circular **ADS-B radar** around your configured location, with flight routes, detailed aircraft models, local weather/time, browser settings, and authenticated OTA updates.
 
+## What the multi-board support achieves
+
+The project builds the same Plane Radar application for two different ESP32 architectures without requiring source edits between builds:
+
+| PlatformIO environment | Board | CPU architecture | Serial connection | Bootloader offset |
+|------------------------|-------|------------------|-------------------|-------------------|
+| `supermini` | ESP32-C3 Super Mini | RISC-V | Native USB CDC | `0x0` |
+| `esp32dev` | ESP32-WROOM-32 DevKit | Xtensa LX6 | USB-to-UART / UART0 | `0x1000` |
+
+- The original ESP32-C3 pins, native USB flags, display behavior, partition table, and application behavior remain unchanged.
+- The classic ESP32 target automatically selects its own safe GPIO mapping and VSPI host. UART0 pins, flash pins, and boot-strapping pins remain available for their intended purposes.
+- Both targets use the same validated 4 MB dual-OTA partition layout and shared application code.
+- Firmware merging derives the bootloader, partition, OTA initializer, and application offsets from the selected PlatformIO environment instead of assuming an ESP32-C3 layout.
+- CI and release packaging build target-specific artifacts for both boards, reducing the risk of flashing a C3 image or C3 bootloader layout onto a classic ESP32.
+
+In practice, selecting `-e supermini` or `-e esp32dev` is enough to produce the correct firmware, GPIO configuration, flash settings, and image layout for that board. This prevents boot failures such as `invalid header` caused by using the wrong architecture or bootloader offset.
+
 ## What it does
 
 1. **Wi‑Fi setup** (if needed) — captive portal on AP **`PlaneRadar-Setup`**
