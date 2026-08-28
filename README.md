@@ -4,7 +4,7 @@
 
 **3D printed case (STL + assembly):** [MakerWorld](https://makerworld.com/en/models/2872376-esp32-plane-radar-live-ads-b-on-a-round-display#profileId-3207083) · **Firmware:** [Releases](../../releases)
 
-Firmware for an **ESP32-C3 Super Mini** and a **1.28″ round GC9A01** display (240×240). Shows a circular **ADS-B radar** around your configured location, with flight routes, detailed aircraft models, local weather/time, browser settings, and authenticated OTA updates.
+Firmware for an **ESP32-C3 Super Mini** or classic **ESP32-WROOM-32 DevKit** and a **1.28″ round GC9A01** display (240×240). Shows a circular **ADS-B radar** around your configured location, with flight routes, detailed aircraft models, local weather/time, browser settings, and authenticated OTA updates.
 
 ## What it does
 
@@ -15,14 +15,16 @@ Firmware for an **ESP32-C3 Super Mini** and a **1.28″ round GC9A01** display (
 
 After Wi‑Fi is saved, the device reconnects automatically; the radar runs in the main loop with periodic ADS-B updates (~3 s).
 
-## Controls (BOOT, GPIO 9, active LOW)
+## Controls (active LOW)
+
+The user button is GPIO 9 on the ESP32-C3 Super Mini and GPIO 21 on the ESP32-WROOM-32 build.
 
 | Action | Effect |
 |--------|--------|
 | **Short tap** | Cycle range preset (5 → 10 → 15 → 25 km); saved to flash |
 | **Hold 3 s** | Factory-reset Wi‑Fi, location, units, display settings, and OTA password; reboot into setup portal |
 
-During setup you can also hold BOOT at power-on to force a credential reset (same as the long press).
+You can also hold the configured user button at power-on to force a credential reset (same as the long press).
 
 ## Wi‑Fi setup portal
 
@@ -174,10 +176,12 @@ src/
   services/
 ```
 
-## Wiring (GC9A01 ↔ ESP32-C3 Super Mini)
+## Wiring (GC9A01)
 
-| Display | ESP32-C3 |
-|---------|----------|
+### ESP32-C3 Super Mini (`supermini`)
+
+| Display / control | ESP32-C3 |
+|-------------------|----------|
 | VCC | 3V3 |
 | GND | GND |
 | RST | GPIO **0** |
@@ -185,40 +189,52 @@ src/
 | DC | GPIO **10** |
 | SDA (MOSI) | GPIO **3** |
 | SCL (SCLK) | GPIO **4** |
-| BOOT (user) | GPIO **9** |
+| User button | GPIO **9** to GND |
+
+### ESP32-WROOM-32 DevKit (`esp32dev`)
+
+| Display / control | ESP32-WROOM-32 |
+|-------------------|----------------|
+| VCC | 3V3 |
+| GND | GND |
+| RST | GPIO **17** |
+| CS | GPIO **22** |
+| DC | GPIO **16** |
+| SDA (MOSI) | GPIO **23** |
+| SCL (SCLK) | GPIO **18** |
+| User button | GPIO **21** to GND |
+
+GPIO 1/3 remain available for UART0. The WROOM user control is a separate momentary button on GPIO 21; it does not repurpose the board's GPIO 0 BOOT strap button.
 
 ## Build
 
 ```bash
-pio run -t upload
-pio device monitor
+pio run -e supermini
+pio run -e esp32dev
+pio device monitor --baud 115200
 ```
 
-- PlatformIO env: **`supermini`**
-- Serial: **115200** baud
-- USB CDC on boot enabled in `platformio.ini` for the Super Mini
+The Super Mini keeps native USB CDC enabled. The `esp32dev` environment uses the board's USB-to-UART bridge, 4 MB flash, and no PSRAM.
 
 ### Web-flashable release image
 
-Single `.bin` for [esptool-js](https://espressif.github.io/esptool-js/) and similar tools (ESP32-C3, 4 MB, flash at **0x0**):
+Target-specific single `.bin` images for [esptool-js](https://espressif.github.io/esptool-js/) and similar tools (4 MB, flash at **0x0**):
 
 ```bash
 chmod +x scripts/merge-firmware.sh   # once
-./scripts/merge-firmware.sh
+./scripts/merge-firmware.sh                         # supermini (default)
+./scripts/merge-firmware.sh --env esp32dev \
+  -o release/plane-radar-esp32dev-merged.bin
 ```
 
-Writes `release/plane-radar-merged.bin`. Skip rebuild if firmware is already built:
+Use `--no-build` to skip the normal build. The merge target derives bootloader and application offsets from the selected PlatformIO environment:
 
 ```bash
-./scripts/merge-firmware.sh --no-build
-```
-
-Or via PlatformIO only (output: `.pio/build/supermini/firmware-merged.bin`):
-
-```bash
-pio run -e supermini
 pio run -t merge -e supermini
+pio run -t merge -e esp32dev
 ```
+
+Outputs are written under `.pio/build/<environment>/firmware-merged.bin`.
 
 Put the board in download mode (hold **BOOT**, tap **RESET**), then flash with Chrome/Edge over USB.
 
@@ -229,7 +245,7 @@ The firmware uses two 1.75 MB application slots. After the OTA-capable partition
 1. Open `http://plane-radar.local`
 2. Choose **Firmware update**
 3. Sign in with username `admin` and your configured OTA password
-4. Upload the release file ending in **`-ota.bin`** (or PlatformIO's `.pio/build/supermini/firmware.bin`)
+4. Upload the release file ending in **`-<environment>-ota.bin`** (or PlatformIO's `.pio/build/<environment>/firmware.bin`)
 5. Keep power connected while the device writes flash and restarts
 
 The initial password is **`plane-radar`**. Change it under **Setup** before using the device on a shared network.
@@ -242,8 +258,8 @@ Never upload the merged/full image to the OTA form; it contains the bootloader a
 
 | Workflow | When | Output |
 |----------|------|--------|
-| [Build](.github/workflows/build.yml) | Push / PR to `main` | Artifact `plane-radar-supermini` (merged + split `.bin` files, ~90 days) |
-| [Release](.github/workflows/release.yml) | Git tag `v*` (e.g. `v1.0.0`) | GitHub Release `-full.bin` and `-ota.bin` assets + checksums |
+| [Build](.github/workflows/build.yml) | Push / PR to `main` | `plane-radar-supermini` and `plane-radar-esp32dev` artifacts (merged + split `.bin` files, ~90 days) |
+| [Release](.github/workflows/release.yml) | Git tag `v*` (e.g. `v1.0.0`) | Target-named `-full.bin` and `-ota.bin` assets + checksums |
 
 To ship a version users can download:
 

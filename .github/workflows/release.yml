@@ -38,8 +38,10 @@ jobs:
 
       - name: Build and merge
         run: |
-          pio run -e supermini
-          pio run -t merge -e supermini
+          for environment in supermini esp32dev; do
+            pio run -e "$environment"
+            pio run -t merge -e "$environment"
+          done
 
       - name: Package release files
         run: |
@@ -48,8 +50,12 @@ jobs:
             VERSION="manual-${GITHUB_SHA::7}"
           fi
           mkdir -p dist
-          cp .pio/build/supermini/firmware-merged.bin "dist/plane-radar-${VERSION}-full.bin"
-          cp .pio/build/supermini/firmware.bin "dist/plane-radar-${VERSION}-ota.bin"
+          for environment in supermini esp32dev; do
+            cp ".pio/build/${environment}/firmware-merged.bin" \
+              "dist/plane-radar-${VERSION}-${environment}-full.bin"
+            cp ".pio/build/${environment}/firmware.bin" \
+              "dist/plane-radar-${VERSION}-${environment}-ota.bin"
+          done
           for image in dist/*.bin; do
             sha256sum "$image" > "${image}.sha256"
           done

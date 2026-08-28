@@ -14,7 +14,13 @@ public:
   LGFX() {
     {
       auto cfg = _bus.config();
+#if defined(CONFIG_IDF_TARGET_ESP32C3)
       cfg.spi_host = SPI2_HOST;
+#elif defined(CONFIG_IDF_TARGET_ESP32)
+      cfg.spi_host = SPI3_HOST;  // VSPI on classic ESP32
+#else
+#error "Unsupported ESP32 target"
+#endif
       cfg.freq_write = config::kDisplaySpiWriteHz;
       cfg.pin_sclk = static_cast<int>(config::kDisplayPinSclk);
       cfg.pin_mosi = static_cast<int>(config::kDisplayPinMosi);
